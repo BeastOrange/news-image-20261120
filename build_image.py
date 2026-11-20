@@ -1,411 +1,343 @@
 #!/usr/bin/env python3
-"""Render the front page for Friday 20 November 2026 as a 1024x1024 PNG.
+"""Draw THE WORLD TODAY for Friday 20 November 2026, 1024x1024 PNG.
 
-The picture is a newspaper front page: masthead, one lead story with a
-drawn illustration of the three flags over a round summit table, six
-further stories in a grid, and a footer ticker. Everything is fixed —
-palette, text, seeded details — so running the script twice produces
-identical bytes. Only Pillow is needed to draw; the graded entrypoint
-(main.py) is stdlib-only and just copies the PNG.
+Layout: a serif masthead with the date in red, a lead panel pairing a
+drawn summit scene (three flags above a round table) with the day's
+biggest story, six boxed stories in two rows of three, and a footer
+ticker of shorter items. Every coordinate, colour and string is a
+literal in this file, so the output is byte-identical on every run.
+Pillow does the drawing; main.py (stdlib only) just copies the PNG.
 
-Stories verified for 20 Nov 2026 against CNN, Le Monde, The Times,
-WAMU/NPR, Education Times, The Daily Jagran, Jagran Josh and studmentor.
+Stories checked for 20 Nov 2026 against CNN, Le Monde, The Times,
+WAMU/NPR, Education Times, The Daily Jagran, Jagran Josh, studmentor.
 """
 import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-BASE = Path(__file__).resolve().parent
-TARGET = BASE / "entry.png"
+HERE = Path(__file__).resolve().parent
+OUT = HERE / "entry.png"
 
-SIZE = 1024
-BACKGROUND = (248, 244, 233)
-BLACK = (20, 20, 20)
-MUTED = (90, 86, 76)
-SCARLET = (185, 28, 28)
-FRAME = (60, 56, 48)
-BODY = (52, 50, 44)
+PAGE = 1024
+MARGIN = 30
+PAPER = (248, 244, 233)
+INK = (20, 20, 20)
+GREY = (90, 86, 76)
+RED = (185, 28, 28)
+RULE = (60, 56, 48)
+TEXT = (52, 50, 44)
+HAIRLINE = (150, 144, 128)
 
-SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
-SANSB = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-SANSR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-
-
-def load_font(path, size):
-    return ImageFont.truetype(path, size)
+FONT_DIR = "/usr/share/fonts/truetype/dejavu"
 
 
-def wrap_text(canvas, text, typeface, max_width):
-    """Split text into lines no wider than max_width (greedy, word by word)."""
-    words = text.split()
-    lines = []
-    current = ""
-    for word in words:
-        candidate = (current + " " + word).strip()
-        if canvas.textlength(candidate, font=typeface) <= max_width or not current:
-            current = candidate
+def face(name, size):
+    return ImageFont.truetype(f"{FONT_DIR}/{name}", size)
+
+
+SERIF_B = "DejaVuSerif-Bold.ttf"
+SANS_B = "DejaVuSans-Bold.ttf"
+SANS_R = "DejaVuSans.ttf"
+
+
+def fit(draw, text, font, width):
+    """Greedy word wrap returning a list of lines fitting `width`."""
+    out, buf = [], ""
+    for word in text.split():
+        trial = f"{buf} {word}".strip()
+        if not buf or draw.textlength(trial, font=font) <= width:
+            buf = trial
         else:
-            lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    return lines
+            out.append(buf)
+            buf = word
+    if buf:
+        out.append(buf)
+    return out
 
 
-def draw_paragraph(canvas, lines, x, y, typeface, colour, leading=4):
-    """Draw stacked lines; return the y just below the last one."""
+def blurb(draw, lines, x, y, font, colour, gap=4):
     for line in lines:
-        canvas.text((x, y), line, font=typeface, fill=colour)
-        y += typeface.size + leading
+        draw.text((x, y), line, font=font, fill=colour)
+        y += font.size + gap
     return y
 
 
-def star(canvas, cx, cy, r, colour):
-    """Five-pointed star centred at (cx, cy) with outer radius r."""
+def five_star(draw, cx, cy, outer, colour):
     pts = []
     for i in range(10):
-        ang = math.radians(-90 + i * 36)
-        rad = r if i % 2 == 0 else r * 0.42
-        pts.append((cx + rad * math.cos(ang), cy + rad * math.sin(ang)))
-    canvas.polygon(pts, fill=colour)
+        a = math.radians(i * 36 - 90)
+        r = outer if i % 2 == 0 else outer * 0.42
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    draw.polygon(pts, fill=colour)
 
 
-def flag_usa(canvas, x, y, w, h):
-    stripe = h / 13.0
+def stars_and_stripes(draw, x, y, w, h):
+    band = h / 13
     for i in range(13):
-        y0 = y + i * stripe
-        colour = (178, 34, 52) if i % 2 == 0 else (255, 255, 255)
-        canvas.rectangle([x, y0, x + w, y0 + stripe + 1], fill=colour)
-    canton_w = w * 0.4
-    canton_h = stripe * 7
-    canvas.rectangle([x, y, x + canton_w, y + canton_h], fill=(60, 59, 110))
-    for row in range(5):
-        for col in range(6):
-            sx = x + 6 + col * (canton_w - 10) / 5
-            sy = y + 5 + row * (canton_h - 9) / 4
-            canvas.ellipse([sx - 1, sy - 1, sx + 1, sy + 1], fill=(255, 255, 255))
-
-
-def flag_chn(canvas, x, y, w, h):
-    canvas.rectangle([x, y, x + w, y + h], fill=(222, 41, 16))
-    star(canvas, x + w * 0.17, y + h * 0.22, 7, (255, 222, 89))
-    for dx, dy in ((0.32, 0.08), (0.40, 0.20), (0.40, 0.36), (0.32, 0.46)):
-        star(canvas, x + w * dx, y + h * dy, 3, (255, 222, 89))
-
-
-def flag_rus(canvas, x, y, w, h):
-    for i, colour in enumerate(((255, 255, 255), (0, 57, 166), (213, 0, 50))):
-        canvas.rectangle([x, y + i * h / 3, x + w, y + (i + 1) * h / 3 + 1], fill=colour)
-
-
-def paint_summit(canvas, region):
-    """Three flags over a round summit table, on a deep-blue night sky."""
-    left, top, right, bottom = region
-    height = bottom - top
-    horizon = top + int(height * 0.78)
-    # night sky gradient
-    row = top
-    while row < horizon:
-        frac = (row - top) / max(1, horizon - top)
-        shade = (
-            int(16 + (58 - 16) * frac),
-            int(24 + (74 - 24) * frac),
-            int(64 + (122 - 64) * frac),
+        draw.rectangle(
+            [x, y + i * band, x + w, y + (i + 1) * band + 1],
+            fill=(178, 34, 52) if i % 2 == 0 else (255, 255, 255),
         )
-        canvas.line([(left, row), (right, row)], fill=shade)
-        row += 1
-    # gold disc behind the flags, high like a rising sun
-    cx = (left + right) // 2
-    disc_y = top + 78
-    canvas.ellipse(
-        [cx - 62, disc_y - 62, cx + 62, disc_y + 62], fill=(212, 160, 60)
-    )
-    canvas.ellipse(
-        [cx - 50, disc_y - 50, cx + 50, disc_y + 50], fill=(232, 190, 96)
-    )
-    # flag poles and flags
-    pole_top = top + 26
-    pole_bottom = horizon - 8
-    flag_w, flag_h = 118, 74
-    flags = (
-        (left + 34, flag_usa),
-        (cx - flag_w // 2, flag_chn),
-        (right - 34 - flag_w, flag_rus),
-    )
-    for fx, painter in flags:
-        canvas.line([(fx + 2, pole_top), (fx + 2, pole_bottom)], fill=(220, 214, 198), width=4)
-        canvas.ellipse([fx - 2, pole_top - 6, fx + 6, pole_top + 2], fill=(232, 190, 96))
-        painter(canvas, fx + 6, pole_top + 8, flag_w, flag_h)
-    # floor
-    canvas.rectangle([left, horizon, right, bottom], fill=(18, 26, 52))
-    # round table, clear of the caption strip
-    table_y = horizon - 2
-    canvas.ellipse(
-        [cx - 168, table_y, cx + 168, table_y + 30], fill=(96, 62, 32)
-    )
-    canvas.ellipse(
-        [cx - 168, table_y, cx + 168, table_y + 18], fill=(146, 96, 52)
-    )
-    canvas.rectangle([cx - 10, table_y + 24, cx + 10, bottom - 30], fill=(70, 44, 24))
-    canvas.text(
-        (left + 12, bottom - 26),
+    cw, ch = w * 0.4, band * 7
+    draw.rectangle([x, y, x + cw, y + ch], fill=(60, 59, 110))
+    for r in range(5):
+        for c in range(6):
+            px = x + 6 + c * (cw - 10) / 5
+            py = y + 5 + r * (ch - 9) / 4
+            draw.ellipse([px - 1, py - 1, px + 1, py + 1], fill=(255, 255, 255))
+
+
+def china_flag(draw, x, y, w, h):
+    draw.rectangle([x, y, x + w, y + h], fill=(222, 41, 16))
+    five_star(draw, x + w * 0.17, y + h * 0.22, 7, (255, 222, 89))
+    for fx, fy in ((0.32, 0.08), (0.40, 0.20), (0.40, 0.36), (0.32, 0.46)):
+        five_star(draw, x + w * fx, y + h * fy, 3, (255, 222, 89))
+
+
+def russia_flag(draw, x, y, w, h):
+    for i, col in enumerate(((255, 255, 255), (0, 57, 166), (213, 0, 50))):
+        draw.rectangle(
+            [x, y + i * h / 3, x + w, y + (i + 1) * h / 3 + 1], fill=col
+        )
+
+
+def summit_scene(draw, box):
+    """Night sky, gold sun, three flags on poles, round table below."""
+    x0, y0, x1, y1 = box
+    mid = (x0 + x1) // 2
+    floor = y0 + int((y1 - y0) * 0.78)
+    for yy in range(y0, floor):
+        t = (yy - y0) / max(1, floor - y0)
+        draw.line(
+            [(x0, yy), (x1, yy)],
+            fill=(int(16 + 42 * t), int(24 + 50 * t), int(64 + 58 * t)),
+        )
+    sun_y = y0 + 78
+    for rad, col in ((62, (212, 160, 60)), (50, (232, 190, 96))):
+        draw.ellipse(
+            [mid - rad, sun_y - rad, mid + rad, sun_y + rad], fill=col
+        )
+    fw, fh = 118, 74
+    pole_top, pole_base = y0 + 26, floor - 8
+    for fx, painter in (
+        (x0 + 34, stars_and_stripes),
+        (mid - fw // 2, china_flag),
+        (x1 - 34 - fw, russia_flag),
+    ):
+        draw.line([(fx + 2, pole_top), (fx + 2, pole_base)], fill=(220, 214, 198), width=4)
+        draw.ellipse([fx - 2, pole_top - 6, fx + 6, pole_top + 2], fill=(232, 190, 96))
+        painter(draw, fx + 6, pole_top + 8, fw, fh)
+    draw.rectangle([x0, floor, x1, y1], fill=(18, 26, 52))
+    ty = floor - 2
+    draw.ellipse([mid - 168, ty, mid + 168, ty + 30], fill=(96, 62, 32))
+    draw.ellipse([mid - 168, ty, mid + 168, ty + 18], fill=(146, 96, 52))
+    draw.rectangle([mid - 10, ty + 24, mid + 10, y1 - 30], fill=(70, 44, 24))
+    draw.text(
+        (x0 + 12, y1 - 26),
         "ILLUSTRATION: THREE FLAGS, ONE TABLE — SHENZHEN",
-        font=load_font(SANSB, 13),
+        font=face(SANS_B, 13),
         fill=(210, 214, 220),
     )
 
 
-def glyph_globe(canvas, region, colour):
-    left, top, right, bottom = region
-    cx, cy = (left + right) // 2, (top + bottom) // 2
-    rad = min(right - left, bottom - top) // 2 - 2
-    canvas.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], outline=colour, width=3)
-    canvas.ellipse(
-        [cx - rad // 2, cy - rad, cx + rad // 2, cy + rad], outline=colour, width=2
-    )
-    canvas.line([(cx - rad, cy), (cx + rad, cy)], fill=colour, width=2)
+def icon_globe(draw, box, col):
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    r = min(x1 - x0, y1 - y0) // 2 - 2
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=3)
+    draw.ellipse([cx - r // 2, cy - r, cx + r // 2, cy + r], outline=col, width=2)
+    draw.line([(cx - r, cy), (cx + r, cy)], fill=col, width=2)
 
 
-def glyph_scales(canvas, region, colour):
-    left, top, right, bottom = region
-    cx = (left + right) // 2
-    canvas.line([(cx, top + 4), (cx, bottom - 8)], fill=colour, width=3)
-    canvas.line([(left + 6, top + 12), (right - 6, top + 12)], fill=colour, width=3)
-    for sx in (left + 8, right - 24):
-        canvas.line([(sx + 7, top + 12), (sx + 7, top + 24)], fill=colour, width=2)
-        canvas.polygon(
-            [(sx, top + 24), (sx + 14, top + 24), (sx + 7, top + 34)], fill=colour
-        )
-    canvas.rectangle([left + 4, bottom - 8, right - 4, bottom - 4], fill=colour)
+def icon_scales(draw, box, col):
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    draw.line([(cx, y0 + 4), (cx, y1 - 8)], fill=col, width=3)
+    draw.line([(x0 + 6, y0 + 12), (x1 - 6, y0 + 12)], fill=col, width=3)
+    for sx in (x0 + 8, x1 - 24):
+        draw.line([(sx + 7, y0 + 12), (sx + 7, y0 + 24)], fill=col, width=2)
+        draw.polygon([(sx, y0 + 24), (sx + 14, y0 + 24), (sx + 7, y0 + 34)], fill=col)
+    draw.rectangle([x0 + 4, y1 - 8, x1 - 4, y1 - 4], fill=col)
 
 
-def glyph_swap(canvas, region, colour):
-    left, top, right, bottom = region
-    canvas.line([(left + 4, top + 12), (right - 10, top + 12)], fill=colour, width=3)
-    canvas.polygon(
-        [(right - 10, top + 6), (right - 2, top + 12), (right - 10, top + 18)],
-        fill=colour,
-    )
-    canvas.line([(right - 4, bottom - 12), (left + 10, bottom - 12)], fill=colour, width=3)
-    canvas.polygon(
-        [(left + 10, bottom - 18), (left + 2, bottom - 12), (left + 10, bottom - 6)],
-        fill=colour,
-    )
+def icon_swap(draw, box, col):
+    x0, y0, x1, y1 = box
+    draw.line([(x0 + 4, y0 + 12), (x1 - 10, y0 + 12)], fill=col, width=3)
+    draw.polygon([(x1 - 10, y0 + 6), (x1 - 2, y0 + 12), (x1 - 10, y0 + 18)], fill=col)
+    draw.line([(x1 - 4, y1 - 12), (x0 + 10, y1 - 12)], fill=col, width=3)
+    draw.polygon([(x0 + 10, y1 - 18), (x0 + 2, y1 - 12), (x0 + 10, y1 - 6)], fill=col)
 
 
-def glyph_cyclone(canvas, region, colour):
-    left, top, right, bottom = region
-    cx, cy = (left + right) // 2, (top + bottom) // 2
+def icon_storm(draw, box, col):
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
     for rad in (18, 12, 6):
-        canvas.arc([cx - rad, cy - rad, cx + rad, cy + rad], 30, 300, fill=colour, width=3)
+        draw.arc([cx - rad, cy - rad, cx + rad, cy + rad], 30, 300, fill=col, width=3)
 
 
-def glyph_droplet(canvas, region, colour):
-    left, top, right, bottom = region
-    cx = (left + right) // 2
-    canvas.polygon([(cx, top + 2), (cx + 13, top + 26), (cx - 13, top + 26)], fill=colour)
-    canvas.ellipse([cx - 13, top + 16, cx + 13, bottom - 4], fill=colour)
+def icon_drop(draw, box, col):
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    draw.polygon([(cx, y0 + 2), (cx + 13, y0 + 26), (cx - 13, y0 + 26)], fill=col)
+    draw.ellipse([cx - 13, y0 + 16, cx + 13, y1 - 4], fill=col)
 
 
-def glyph_atom(canvas, region, colour):
-    left, top, right, bottom = region
-    cx, cy = (left + right) // 2, (top + bottom) // 2
-    for ang in (0, 60, 120):
-        rad = math.radians(ang)
-        rx, ry = 20, 8
+def icon_atom(draw, box, col):
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    for tilt in (0, 60, 120):
+        a = math.radians(tilt)
         pts = []
         for i in range(36):
             t = math.radians(i * 10)
-            px = cx + rx * math.cos(t) * math.cos(rad) - ry * math.sin(t) * math.sin(rad)
-            py = cy + rx * math.cos(t) * math.sin(rad) + ry * math.sin(t) * math.cos(rad)
-            pts.append((px, py))
-        canvas.line(pts + [pts[0]], fill=colour, width=2)
-    canvas.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=colour)
+            pts.append((
+                cx + 20 * math.cos(t) * math.cos(a) - 8 * math.sin(t) * math.sin(a),
+                cy + 20 * math.cos(t) * math.sin(a) + 8 * math.sin(t) * math.cos(a),
+            ))
+        draw.line(pts + [pts[0]], fill=col, width=2)
+    draw.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=col)
 
 
-GLYPHS = {
-    "globe": glyph_globe,
-    "scales": glyph_scales,
-    "swap": glyph_swap,
-    "cyclone": glyph_cyclone,
-    "droplet": glyph_droplet,
-    "atom": glyph_atom,
+ICONS = {
+    "globe": icon_globe,
+    "scales": icon_scales,
+    "swap": icon_swap,
+    "storm": icon_storm,
+    "drop": icon_drop,
+    "atom": icon_atom,
 }
 
-ITEMS = [
-    {
-        "section": "WORLD COURT",
-        "colour": (120, 40, 40),
-        "glyph": "scales",
-        "headline": "MYANMAR GUILTY OF GENOCIDE",
-        "standfirst": "The ICJ finds the state responsible for the 2017 Rohingya killings — a first under the 1948 Convention.",
-    },
-    {
-        "section": "WEATHER",
-        "colour": (29, 78, 216),
-        "glyph": "cyclone",
-        "headline": "CYCLONE AKVAN HITS INDIA'S COAST",
-        "standfirst": "The severe storm makes landfall in Odisha; 80,000 people evacuated.",
-    },
-    {
-        "section": "KOREA",
-        "colour": (21, 80, 160),
-        "glyph": "globe",
-        "headline": "TOP COURT CLEARS EX-PM HAN",
-        "standfirst": "South Korea's Supreme Court overturns Han Duck-soo's conviction in the martial-law case.",
-    },
-    {
-        "section": "PACIFIC",
-        "colour": (14, 116, 144),
-        "glyph": "droplet",
-        "headline": "FIJI DECLARES NATIONAL DISASTER",
-        "standfirst": "Drought and water shortages grip the islands as El Niño bites.",
-    },
-    {
-        "section": "SECURITY",
-        "colour": (109, 40, 217),
-        "glyph": "atom",
-        "headline": "NORTH KOREA EXPANDS ENRICHMENT",
-        "standfirst": "The UN watchdog says the uranium facility at Yongbyon is growing.",
-    },
-    {
-        "section": "AMERICAS",
-        "colour": (158, 116, 8),
-        "glyph": "swap",
-        "headline": "US, VENEZUELA RESTORE MILITARY TIES",
-        "standfirst": "Washington and Caracas sign a deal to resume defence cooperation.",
-    },
+STORIES = [
+    ("WORLD COURT", (120, 40, 40), "scales",
+     "MYANMAR GUILTY OF GENOCIDE",
+     "The ICJ finds the state responsible for the 2017 Rohingya killings — a first under the 1948 Convention."),
+    ("WEATHER", (29, 78, 216), "storm",
+     "CYCLONE AKVAN HITS INDIA'S COAST",
+     "The severe storm makes landfall in Odisha; 80,000 people evacuated."),
+    ("KOREA", (21, 80, 160), "globe",
+     "TOP COURT CLEARS EX-PM HAN",
+     "South Korea's Supreme Court overturns Han Duck-soo's conviction in the martial-law case."),
+    ("PACIFIC", (14, 116, 144), "drop",
+     "FIJI DECLARES NATIONAL DISASTER",
+     "Drought and water shortages grip the islands as El Niño bites."),
+    ("SECURITY", (109, 40, 217), "atom",
+     "NORTH KOREA EXPANDS ENRICHMENT",
+     "The UN watchdog says the uranium facility at Yongbyon is growing."),
+    ("AMERICAS", (158, 116, 8), "swap",
+     "US, VENEZUELA RESTORE MILITARY TIES",
+     "Washington and Caracas sign a deal to resume defence cooperation."),
 ]
 
+TICKER = (
+    "ALSO TODAY:   Australia sanctions Israeli settlers over West Bank expansion  ·  "
+    "Modi meets the Prince and Princess of Wales in Delhi  ·  "
+    "Anthropic valued at $1.5 trillion  ·  "
+    "India v New Zealand, 1st Test: Nicholls 113* as NZ reach 243/5  ·  "
+    "ADNOC vessel hit in the Strait of Hormuz, one crew missing"
+)
 
-def render():
-    page = Image.new("RGB", (SIZE, SIZE), BACKGROUND)
-    canvas = ImageDraw.Draw(page)
-    edge = 30
-    canvas.rectangle(
-        [edge - 8, edge - 8, SIZE - edge + 8, SIZE - edge + 8], outline=FRAME, width=2
-    )
+LEAD_DECK = (
+    "Trump, Xi and Putin hold the first-ever trilateral summit in Shenzhen "
+    "and pledge: a nuclear war cannot be won and must never be fought. "
+    "UN reform and more oil output also agreed."
+)
 
-    # ---- masthead ----
-    name_face = load_font(SERIF, 78)
+
+def masthead(draw, y):
+    title = face(SERIF_B, 78)
     name = "THE WORLD TODAY"
-    name_w = canvas.textlength(name, font=name_face)
-    canvas.text(((SIZE - name_w) / 2, 30), name, font=name_face, fill=BLACK)
-    cursor = 30 + 78 + 10
-    canvas.line([(edge, cursor), (SIZE - edge, cursor)], fill=BLACK, width=3)
-    canvas.line([(edge, cursor + 6), (SIZE - edge, cursor + 6)], fill=BLACK, width=1)
-    cursor += 16
-    date_face = load_font(SANSB, 27)
-    dateline = "FRIDAY, 20 NOVEMBER 2026"
-    date_w = canvas.textlength(dateline, font=date_face)
-    canvas.text(((SIZE - date_w) / 2, cursor), dateline, font=date_face, fill=SCARLET)
-    cursor += 27 + 10
-    motto_face = load_font(SANSR, 16)
-    motto = "ONE DAY  ·  ONE IMAGE  —  THE WORLD IN A SINGLE FRAME"
-    motto_w = canvas.textlength(motto, font=motto_face)
-    canvas.text(((SIZE - motto_w) / 2, cursor), motto, font=motto_face, fill=MUTED)
-    cursor += 16 + 14
+    w = draw.textlength(name, font=title)
+    draw.text(((PAGE - w) / 2, 30), name, font=title, fill=INK)
+    y = 30 + 78 + 10
+    draw.line([(MARGIN, y), (PAGE - MARGIN, y)], fill=INK, width=3)
+    draw.line([(MARGIN, y + 6), (PAGE - MARGIN, y + 6)], fill=INK, width=1)
+    y += 16
+    stamp = face(SANS_B, 27)
+    day = "FRIDAY, 20 NOVEMBER 2026"
+    w = draw.textlength(day, font=stamp)
+    draw.text(((PAGE - w) / 2, y), day, font=stamp, fill=RED)
+    y += 27 + 10
+    tag = face(SANS_R, 16)
+    line = "ONE DAY  ·  ONE IMAGE  —  THE WORLD IN A SINGLE FRAME"
+    w = draw.textlength(line, font=tag)
+    draw.text(((PAGE - w) / 2, y), line, font=tag, fill=GREY)
+    return y + 16 + 14
 
-    # ---- lead story ----
-    lead_top = cursor
-    lead_height = 282
-    canvas.rectangle(
-        [edge, lead_top, SIZE - edge, lead_top + lead_height], outline=BLACK, width=2
-    )
-    picture = (edge + 2, lead_top + 2, edge + 482, lead_top + lead_height - 2)
-    paint_summit(canvas, picture)
-    text_x = edge + 482 + 26
-    text_w = SIZE - edge - 26 - text_x
-    cursor = lead_top + 24
-    canvas.text((text_x, cursor), "THE SUMMIT", font=load_font(SANSB, 17), fill=SCARLET)
-    cursor += 17 + 12
-    lead_face = load_font(SANSB, 37)
-    lead_lines = wrap_text(canvas, "THREE POWERS, ONE TABLE", lead_face, text_w)
-    cursor = draw_paragraph(canvas, lead_lines, text_x, cursor, lead_face, BLACK, 6)
-    cursor += 10
-    canvas.line([(text_x, cursor), (text_x + 64, cursor)], fill=SCARLET, width=4)
-    cursor += 18
-    deck_face = load_font(SANSR, 18)
-    deck = (
-        "Trump, Xi and Putin hold the first-ever trilateral summit in Shenzhen "
-        "and pledge: a nuclear war cannot be won and must never be fought. "
-        "UN reform and more oil output also agreed."
-    )
-    draw_paragraph(
-        canvas, wrap_text(canvas, deck, deck_face, text_w), text_x, cursor, deck_face, BODY, 6
-    )
-    cursor = lead_top + lead_height + 16
 
-    # ---- six stories in a 3 x 2 grid ----
-    columns, rows = 3, 2
-    gutter = 15
-    cell_w = (SIZE - 2 * edge - (columns - 1) * gutter) // columns
-    cell_h = 184
-    grid_top = cursor
-    for pos, item in enumerate(ITEMS):
-        row, col = divmod(pos, columns)
-        x = edge + col * (cell_w + gutter)
-        y0 = grid_top + row * (cell_h + gutter)
-        canvas.rectangle(
-            [x, y0, x + cell_w, y0 + cell_h], outline=(150, 144, 128), width=1
-        )
-        canvas.rectangle([x, y0, x + cell_w, y0 + 5], fill=item["colour"])
-        gx = x + cell_w - 52
-        GLYPHS[item["glyph"]](
-            canvas, (gx, y0 + 16, gx + 44, y0 + 60), item["colour"]
-        )
-        inner_x = x + 16
-        inner_y = y0 + 16
-        canvas.text(
-            (inner_x, inner_y),
-            item["section"],
-            font=load_font(SANSB, 14),
-            fill=item["colour"],
-        )
-        inner_y += 14 + 8
-        head_face = load_font(SANSB, 20)
-        head_lines = wrap_text(canvas, item["headline"], head_face, cell_w - 32 - 52)
-        inner_y = draw_paragraph(canvas, head_lines, inner_x, inner_y, head_face, BLACK, 3)
-        inner_y += 6
-        deck_face = load_font(SANSR, 15)
-        draw_paragraph(
-            canvas,
-            wrap_text(canvas, item["standfirst"], deck_face, cell_w - 32),
-            inner_x,
-            inner_y,
-            deck_face,
-            BODY,
-            4,
-        )
+def lead_panel(draw, y):
+    height = 282
+    draw.rectangle(
+        [MARGIN, y, PAGE - MARGIN, y + height], outline=INK, width=2
+    )
+    summit_scene(draw, (MARGIN + 2, y + 2, MARGIN + 482, y + height - 2))
+    tx = MARGIN + 482 + 26
+    tw = PAGE - MARGIN - 26 - tx
+    cy = y + 24
+    draw.text((tx, cy), "THE SUMMIT", font=face(SANS_B, 17), fill=RED)
+    cy += 17 + 12
+    head = face(SANS_B, 37)
+    cy = blurb(draw, fit(draw, "THREE POWERS, ONE TABLE", head, tw), tx, cy, head, INK, 6)
+    cy += 10
+    draw.line([(tx, cy), (tx + 64, cy)], fill=RED, width=4)
+    cy += 18
+    deck = face(SANS_R, 18)
+    blurb(draw, fit(draw, LEAD_DECK, deck, tw), tx, cy, deck, TEXT, 6)
+    return y + height + 16
 
-    # ---- footer ticker ----
-    foot = grid_top + rows * cell_h + (rows - 1) * gutter + 16
-    canvas.line([(edge, foot), (SIZE - edge, foot)], fill=BLACK, width=2)
-    foot += 12
-    tick_face = load_font(SANSB, 15)
-    ticker = (
-        "ALSO TODAY:   Australia sanctions Israeli settlers over West Bank expansion  ·  "
-        "Modi meets the Prince and Princess of Wales in Delhi  ·  "
-        "Anthropic valued at $1.5 trillion  ·  "
-        "India v New Zealand, 1st Test: Nicholls 113* as NZ reach 243/5  ·  "
-        "ADNOC vessel hit in the Strait of Hormuz, one crew missing"
-    )
-    foot = draw_paragraph(
-        canvas, wrap_text(canvas, ticker, tick_face, SIZE - 2 * edge), edge, foot, tick_face, BLACK, 4
-    )
-    foot += 10
-    credit_face = load_font(SANSR, 13)
-    canvas.text(
-        (edge, foot),
+
+def story_grid(draw, y):
+    cols, rows, gap = 3, 2, 15
+    cw = (PAGE - 2 * MARGIN - (cols - 1) * gap) // cols
+    ch = 184
+    for n, (section, col, icon, head, stand) in enumerate(STORIES):
+        r, c = divmod(n, cols)
+        x = MARGIN + c * (cw + gap)
+        y0 = y + r * (ch + gap)
+        draw.rectangle([x, y0, x + cw, y0 + ch], outline=HAIRLINE, width=1)
+        draw.rectangle([x, y0, x + cw, y0 + 5], fill=col)
+        gx = x + cw - 52
+        ICONS[icon](draw, (gx, y0 + 16, gx + 44, y0 + 60), col)
+        ix, iy = x + 16, y0 + 16
+        draw.text((ix, iy), section, font=face(SANS_B, 14), fill=col)
+        iy += 14 + 8
+        hf = face(SANS_B, 20)
+        iy = blurb(draw, fit(draw, head, hf, cw - 32 - 52), ix, iy, hf, INK, 3)
+        iy += 6
+        df = face(SANS_R, 15)
+        blurb(draw, fit(draw, stand, df, cw - 32), ix, iy, df, TEXT, 4)
+    return y + rows * ch + (rows - 1) * gap + 16
+
+
+def footer(draw, y):
+    draw.line([(MARGIN, y), (PAGE - MARGIN, y)], fill=INK, width=2)
+    y += 12
+    tf = face(SANS_B, 15)
+    y = blurb(draw, fit(draw, TICKER, tf, PAGE - 2 * MARGIN), MARGIN, y, tf, INK, 4)
+    y += 10
+    draw.text(
+        (MARGIN, y),
         "Sources: CNN  ·  Le Monde  ·  The Times  ·  NPR  ·  The Hindu  —  20 November 2026",
-        font=credit_face,
-        fill=MUTED,
+        font=face(SANS_R, 13),
+        fill=GREY,
     )
 
-    page.save(TARGET, format="PNG")
-    print(f"wrote {TARGET} ({TARGET.stat().st_size} bytes)")
+
+def main():
+    sheet = Image.new("RGB", (PAGE, PAGE), PAPER)
+    draw = ImageDraw.Draw(sheet)
+    draw.rectangle(
+        [MARGIN - 8, MARGIN - 8, PAGE - MARGIN + 8, PAGE - MARGIN + 8],
+        outline=RULE,
+        width=2,
+    )
+    y = masthead(draw, 0)
+    y = lead_panel(draw, y)
+    y = story_grid(draw, y)
+    footer(draw, y)
+    sheet.save(OUT, format="PNG")
+    print(f"wrote {OUT} ({OUT.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":
-    render()
+    main()

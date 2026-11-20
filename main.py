@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
-"""Write the entry image to the grader's output directory.
+"""Entrypoint: hand the finished front page to the grader.
 
-The image itself is produced by build_image.py and shipped in this
-repository as entry.png. This entrypoint uses only the standard library:
-it reads the shipped PNG and writes it out again, byte for byte, so
-running it twice always produces the same file.
+The PNG is drawn by build_image.py and stored in this repo as
+entry.png. This file is the program the grader runs: it needs nothing
+beyond the standard library, reads the stored image, and writes it to
+the output folder the grader points at (MAKEFUN_OUTPUT_DIR, or
+/output when that is unset). Same input, same output, every run.
 """
 import os
-import sys
 from pathlib import Path
 
-SOURCE = Path(__file__).resolve().parent / "entry.png"
+IMAGE = Path(__file__).parent / "entry.png"
 
 
-def write_entry() -> int:
-    destination_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output")
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = destination_dir / "entry.png"
-    payload = SOURCE.read_bytes()
-    destination.write_bytes(payload)
-    print(f"wrote {destination} ({len(payload)} bytes)")
-    return 0
+def run():
+    outdir = Path(os.getenv("MAKEFUN_OUTPUT_DIR", "/output"))
+    outdir.mkdir(parents=True, exist_ok=True)
+    target = outdir / "entry.png"
+    blob = IMAGE.read_bytes()
+    with open(target, "wb") as fh:
+        fh.write(blob)
+    print(f"wrote {target} ({len(blob)} bytes)")
 
 
 if __name__ == "__main__":
-    raise SystemExit(write_entry())
+    run()
